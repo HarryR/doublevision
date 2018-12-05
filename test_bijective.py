@@ -1,6 +1,11 @@
 from hashlib import sha256
-from math import gcd, log, ceil
+from math import log, ceil
+try:
+	from math import gcd
+except ImportError:
+	from fractions import gcd
 from mimc import mimc, mimc_mp, round_constants
+from jarvis import jarvis, friday
 import statistics
 from collections import defaultdict
 
@@ -21,33 +26,10 @@ def fn_random_oracle(k, m, p):
 	return int.from_bytes(sha256(data).digest(), 'big') % p
 
 
-def fn_inversion_many(k, m, p):
-	for c in [0] + list(round_constants(12343, p, 10)):
-		m = (pow(m, p-2, p) + k + c) % p
-	return m
-
-
-def fn_inversion_many_mp(k, m, p):
-	return (k + m + fn_inversion_many(k, m, p)) % p
-
-
-def fn_inversion_mp(k, m, p):
-	return (pow(m, p-2, p) + k + m) % p
-
-
 PRIME_QUALITIES = {
-	'odd': lambda p: p % 2 != 0,
-	'gcd3_eq1': lambda p: gcd(3, p-1) == 1,
-	'gcd4_eq1': lambda p: gcd(4, p-1) == 1,
-	'gcd5_eq1': lambda p: gcd(5, p-1) == 1,	
-	'gcd6_eq1': lambda p: gcd(6, p-1) == 1,
-	'gcd7_eq1': lambda p: gcd(7, p-1) == 1,
-
-	'gcd3': lambda p: gcd(3, p-1),
-	'gcd4': lambda p: gcd(4, p-1),
-	'gcd5': lambda p: gcd(5, p-1),	
-	'gcd6': lambda p: gcd(6, p-1),
-	'gcd7': lambda p: gcd(7, p-1),
+	'gcd(3,p-1)==1': lambda p: gcd(3, p-1) == 1,
+	'gcd(5,p-1)==1': lambda p: gcd(5, p-1) == 1,	
+	'gcd(7,p-1)==1': lambda p: gcd(7, p-1) == 1,
 }
 
 ALGORITHMS = {
@@ -55,9 +37,9 @@ ALGORITHMS = {
 	'random_oracle': fn_random_oracle,
 
 	'inversion': lambda k, m, p: (pow(m, p-2, p) + k) % p,
-	'inversion_many': fn_inversion_many,
-	'inversion_mp': fn_inversion_mp,
-	'inversion_many_mp': fn_inversion_many_mp,
+
+	'jarvis': lambda k, m, p: jarvis(m, k, round_constants(0, p, 5), p),
+	'friday': lambda k, m, p: friday([m], k, round_constants(0, p, 5), p),
 
 	'mimc_e3': lambda k, m, p: mimc(m, k, 0, p, 3, 3),
 	'mimc_e5': lambda k, m, p: mimc(m, k, 0, p, 5, 3),
@@ -89,7 +71,7 @@ class FunctionSquare(object):
 	def col(self, m):
 		return [self._data[k][m] for k in range(0, self._p - 1)]
 
-	def print(self):
+	def display(self):
 		ndigits = int(ceil(log(self._p, 10))) + 1
 		fmt = '%-' + str(ndigits) + 's'
 		header = [' ' * ndigits] + [fmt % i for i in range(0, p-1)]
@@ -112,9 +94,12 @@ class FunctionSquare(object):
 		return (n_rows_bijective, n_cols_bijective)
 
 
+properties_alg_stats = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+
 primes = dict()
+
 with open('first-mil-primes.txt', 'r') as handle:
-	for p in handle:		
+	for i, p in enumerate(handle):
 		p = int(p.strip())
 		if p < 5:
 			continue
@@ -123,24 +108,60 @@ with open('first-mil-primes.txt', 'r') as handle:
 
 		for alg_name, alg_fn in ALGORITHMS.items():
 			alg_quals = dict()
-			print('Prime', p)
-			print('Alg', alg_name)
+			#print('Prime', p)
+			#print('Alg', alg_name)
 			x = FunctionSquare(p, alg_fn)			
-			#x.print()
+			#x.display()
+			#print()
 
 			b = x.bijectivity()
 			alg_quals['latin_square'] = (b[0] == p-1 and b[1] == p-1)
 			alg_quals['bijective_m_each_key'] = b[0] == p-1
 			alg_quals['bijective_k_each_msg'] = b[1] == p-1 
-			print("STDEV per row", statistics.mean([statistics.stdev(_) for _ in x.rows()]))
-			print("STDEV per col", statistics.mean([statistics.stdev(_) for _ in x.cols()]))
+			#print("STDEV per row", statistics.mean([statistics.stdev(_) for _ in x.rows()]))
+			#print("STDEV per col", statistics.mean([statistics.stdev(_) for _ in x.cols()]))
 			try:
-				print("Frequency Deviance Rows", statistics.median([statistics.stdev(list(observe_frequencies(_, p))) for _ in x.rows()]))
-				print("Frequency Deviance Cols", statistics.median([statistics.stdev(list(observe_frequencies(_, p))) for _ in x.cols()]))
+				freqs_rows = [statistics.stdev(list(observe_frequencies(_, p))) for _ in x.rows()]
+				freqs_cols = [statistics.stdev(list(observe_frequencies(_, p))) for _ in x.cols()]
+				freq_dev_rows = statistics.median(freqs_rows)
+				freq_dev_cols = statistics.median(freqs_cols)
+				"""
+				if freq_dev_rows == 0.0:
+					print(p, alg_name, quals, freqs_rows, freqs_cols)
+					x.display()
+					print()
+					print()
+					print()
+				"""
+
+				#print("Frequency Deviance Rows", freq_dev_rows)
+				#print("Frequency Deviance Cols", freq_dev_cols)
 			except Exception:
 				pass
-			print(alg_quals)
-			print()
-		print()
-		print()
+			for pq_name, pq_val in quals.items():
+				if pq_val is not True:
+					continue
+				properties_alg_stats[alg_name][pq_name]['deviance_rows'].append(freq_dev_rows)
+				properties_alg_stats[alg_name][pq_name]['deviance_cols'].append(freq_dev_cols)
+				for alg_qual_name, alg_qual_value in alg_quals.items():
+					if alg_qual_value:
+						properties_alg_stats[alg_name][alg_qual_name]['deviance_rows'].append(freq_dev_rows)
+						properties_alg_stats[alg_name][alg_qual_name]['deviance_cols'].append(freq_dev_cols)
+			#print(alg_quals)
+			#print()
+		if i != 0 and i % 50 == 0:
+			for alg_name in sorted(properties_alg_stats.keys()):
+				alg_quals = properties_alg_stats[alg_name]
+				print(alg_name)
+				for qual_name in sorted(alg_quals.keys()):
+					stats = alg_quals[qual_name]
+					print("\t", qual_name, len(stats['deviance_rows']))
+					print("\t\tRD: %.2f %.2f %.2f" % (statistics.median(stats['deviance_rows']), min(stats['deviance_rows']), max(stats['deviance_rows'])))
+					print("\t\tCD: %.2f %.2f %.2f" % (statistics.median(stats['deviance_cols']), min(stats['deviance_cols']), max(stats['deviance_cols'])))
+					#print(stats['deviance_rows'])
+			break
+
+			#print(properties_alg_stats)
+		#print()
+		#print()
 

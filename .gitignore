@@ -1,4 +1,5 @@
 first-mil-primes.txt
 primes1.*
 *.swp
+*.pyc
 __pycache__
