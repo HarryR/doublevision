@@ -6,6 +6,7 @@ except ImportError:
 	from fractions import gcd
 from mimc import mimc, mimc_mp, round_constants
 from jarvis import jarvis, friday
+from mimcsponge import MiMCFeistel, MiMCsponge
 import statistics
 from collections import defaultdict
 
@@ -42,12 +43,16 @@ ALGORITHMS = {
 	'friday': lambda k, m, p: friday([m], k, round_constants(0, p, 5), p),
 
 	'mimc_e3': lambda k, m, p: mimc(m, k, 0, p, 3, 3),
-	'mimc_e5': lambda k, m, p: mimc(m, k, 0, p, 5, 3),
+	'mimc_e5': lambda k, m, p: mimc(m, k, 0, p, 5, 3),	
 	'mimc_e7': lambda k, m, p: mimc(m, k, 0, p, 7, 3),
 
 	'mimc_mp_e3': lambda k, m, p: mimc_mp([m], k, 0, p, 3, 3),
 	'mimc_mp_e5': lambda k, m, p: mimc_mp([m], k, 0, p, 5, 3),
 	'mimc_mp_e7': lambda k, m, p: mimc_mp([m], k, 0, p, 7, 3),
+
+	'mimcsponge_e5': lambda k, m, p: list(MiMCsponge([m], 0, k, p=p, R=3, e=5))[0],
+	'mimcsponge_e5_m': lambda k, m, p: list(MiMCsponge([m], m, k, p=p, R=3, e=5))[0],
+	'mimcsponge_e5_mm': lambda k, m, p: list(MiMCsponge([m, m], 0, k, p=p, R=3, e=5))[0],
 }
 
 
